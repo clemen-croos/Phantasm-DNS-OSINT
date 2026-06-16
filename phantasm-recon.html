@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Phantasm/Recon — DNS OSINT Tool</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0a0e1a;
+    --bg2:      #0d1b2a;
+    --bg3:      #0f2035;
+    --border:   #1e3a5f;
+    --border2:  #1e2d40;
+    --text:     #c8d6e5;
+    --dim:      #3a5a7a;
+    --mid:      #5a8aaa;
+    --accent:   #00d4aa;
+    --yellow:   #f39c12;
+    --red:      #e74c3c;
+    --blue:     #7ab8d4;
+  }
+
+  body {
+    font-family: 'Courier New', Courier, monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 20px 24px 48px;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border2);
+    padding-bottom: 14px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .logo { color: var(--accent); font-size: 20px; font-weight: bold; letter-spacing: 3px; }
+  .logo sub { color: var(--mid); font-size: 12px; letter-spacing: 1px; vertical-align: middle; margin-left: 4px; }
+  .badge {
+    background: var(--bg3); color: var(--accent);
+    border: 1px solid rgba(0,212,170,.25); font-size: 10px;
+    padding: 2px 9px; border-radius: 3px; letter-spacing: 1px;
+  }
+  .header-right { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #status-pill {
+    font-size: 10px; padding: 3px 10px; border-radius: 20px;
+    background: var(--bg3); color: var(--dim); border: 1px solid var(--border);
+    letter-spacing: 1px;
+  }
+  #status-pill.active { color: var(--accent); border-color: rgba(0,212,170,.4); }
+  #status-pill.done   { color: var(--accent); border-color: rgba(0,212,170,.4); }
+
+  /* ── Search bar ── */
+  .search-wrap { display: flex; gap: 8px; margin-bottom: 20px; }
+  .search-wrap input {
+    flex: 1; background: var(--bg2); border: 1px solid var(--border);
+    color: var(--text); padding: 11px 16px;
+    font-family: 'Courier New', monospace; font-size: 13px;
+    border-radius: 5px; outline: none; transition: border .2s;
+  }
+  .search-wrap input:focus { border-color: var(--accent); }
+  .search-wrap input::placeholder { color: var(--dim); }
+  .btn {
+    background: var(--accent); color: var(--bg); border: none;
+    padding: 11px 22px; font-family: 'Courier New', monospace;
+    font-size: 13px; font-weight: bold; cursor: pointer;
+    border-radius: 5px; white-space: nowrap; letter-spacing: .5px;
+    transition: background .15s;
+  }
+  .btn:hover:not(:disabled) { background: #00b894; }
+  .btn:disabled { background: var(--border); color: var(--dim); cursor: not-allowed; }
+  .btn-ghost {
+    background: transparent; color: var(--dim); border: 1px solid var(--border);
+    transition: color .15s, border-color .15s;
+  }
+  .btn-ghost:hover { color: var(--text); border-color: var(--mid); background: transparent; }
+
+  /* ── Grid layout ── */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .span2 { grid-column: 1 / -1; }
+  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } .span2 { grid-column: 1; } }
+
+  /* ── Cards ── */
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .card-head {
+    background: var(--bg3); border-bottom: 1px solid var(--border);
+    padding: 8px 14px; display: flex; align-items: center; gap: 9px;
+  }
+  .card-title { font-size: 10px; color: var(--mid); text-transform: uppercase; letter-spacing: 1.5px; }
+  .card-head .count {
+    margin-left: auto; font-size: 10px; color: var(--dim);
+    background: var(--bg); padding: 1px 7px; border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--accent); }
+  .dot.y { background: var(--yellow); }
+  .dot.r { background: var(--red); }
+  .dot.d { background: var(--dim); }
+  .card-body { padding: 13px 14px; }
+
+  /* ── Rows inside cards ── */
+  .row {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 5px 0; border-bottom: 1px solid #0f1f30;
+    font-size: 12px; gap: 8px;
+  }
+  .row:last-child { border-bottom: none; }
+  .rk { color: var(--mid); min-width: 120px; flex-shrink: 0; }
+  .rv { color: var(--text); text-align: right; word-break: break-all; }
+  .rv.g { color: var(--accent); }
+  .rv.y { color: var(--yellow); }
+  .rv.r { color: var(--red); }
+  .rv.d { color: var(--dim); }
+
+  /* ── DNS pre ── */
+  pre.dns {
+    font-size: 11px; color: var(--blue); line-height: 1.8;
+    white-space: pre-wrap; word-break: break-all; margin: 0;
+    max-height: 200px; overflow-y: auto;
+  }
+  pre.dns::-webkit-scrollbar { width: 4px; }
+  pre.dns::-webkit-scrollbar-track { background: var(--bg); }
+  pre.dns::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Log ── */
+  .log { font-size: 11px; line-height: 2; max-height: 130px; overflow-y: auto; }
+  .log::-webkit-scrollbar { width: 4px; }
+  .log::-webkit-scrollbar-thumb { background: var(--border); }
+  .log-line { color: var(--dim); }
+  .log-line span { color: var(--accent); }
+  .log-line.e span { color: var(--red); }
+  .log-line.w span { color: var(--yellow); }
+
+  /* ── Tags ── */
+  .tag {
+    display: inline-block; background: var(--bg3);
+    border: 1px solid var(--border); color: var(--blue);
+    font-size: 10px; padding: 3px 8px; border-radius: 3px;
+    margin: 2px 3px 2px 0; letter-spacing: .3px;
+  }
+  .tag.safe   { border-color: rgba(0,212,170,.35); color: var(--accent); background: #001a15; }
+  .tag.warn   { border-color: rgba(243,156,18,.35); color: var(--yellow); background: #1a1200; }
+  .tag.danger { border-color: rgba(231,76,60,.35);  color: var(--red);    background: #1a0a0a; }
+
+  /* ── Risk score ── */
+  .score-bar { height: 7px; background: var(--bg3); border-radius: 4px; margin: 8px 0 4px; overflow: hidden; }
+  .score-fill { height: 100%; border-radius: 4px; transition: width 1.2s cubic-bezier(.4,0,.2,1); }
+  .score-note { font-size: 11px; color: var(--mid); margin-bottom: 10px; }
+  .risk-badge {
+    font-size: 10px; padding: 3px 10px; border-radius: 3px;
+    font-weight: bold; letter-spacing: 1.5px;
+  }
+  .risk-LOW    { background: #001a15; color: var(--accent); border: 1px solid rgba(0,212,170,.3); }
+  .risk-MEDIUM { background: #1a1200; color: var(--yellow); border: 1px solid rgba(243,156,18,.3); }
+  .risk-HIGH   { background: #1a0a0a; color: var(--red);    border: 1px solid rgba(231,76,60,.3); }
+
+  /* ── Subdomains list ── */
+  .sub-list { max-height: 170px; overflow-y: auto; }
+  .sub-list::-webkit-scrollbar { width: 4px; }
+  .sub-list::-webkit-scrollbar-thumb { background: var(--border); }
+  .sub-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 0; border-bottom: 1px solid #0f1f30; font-size: 12px;
+  }
+  .sub-item:last-child { border-bottom: none; }
+  .sub-name { color: var(--blue); }
+  .sub-ip   { color: var(--dim); font-size: 11px; }
+
+  /* ── SPF/DMARC detail ── */
+  .spf-box {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 4px; padding: 7px 10px; font-size: 11px;
+    color: var(--blue); word-break: break-all; margin-top: 6px;
+    line-height: 1.6;
+  }
+
+  /* ── Spinner ── */
+  .spin {
+    display: inline-block; width: 10px; height: 10px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .6s linear infinite; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty { color: var(--dim); font-size: 12px; text-align: center; padding: 18px 0; }
+  .placeholder { display: none; }
+
+  /* ── Summary strip ── */
+  .summary-strip {
+    display: none; gap: 0;
+    border: 1px solid var(--border); border-radius: 7px; overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .strip-item {
+    flex: 1; padding: 11px 14px; text-align: center;
+    border-right: 1px solid var(--border); background: var(--bg2);
+  }
+  .strip-item:last-child { border-right: none; }
+  .strip-val { font-size: 20px; color: var(--accent); font-weight: bold; }
+  .strip-label { font-size: 10px; color: var(--mid); letter-spacing: 1px; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo">⬡ PHANTASM <sub>/recon</sub></div>
+  <div class="badge">v1.0</div>
+  <div class="badge">DNS · WHOIS · OSINT</div>
+  <div class="header-right">
+    <span id="status-pill">IDLE</span>
+    <span style="font-size:10px;color:var(--dim)">No server required · Runs in browser</span>
+  </div>
+</div>
+
+<!-- Search -->
+<div class="search-wrap">
+  <input type="text" id="domain-input" placeholder="Enter a domain  (e.g.  github.com  ·  google.com  ·  tesla.com)" />
+  <button class="btn" id="scan-btn" onclick="runScan()">▶ SCAN</button>
+  <button class="btn btn-ghost" onclick="clearAll()">✕ CLEAR</button>
+</div>
+
+<!-- Summary strip -->
+<div class="summary-strip" id="summary-strip">
+  <div class="strip-item"><div class="strip-val" id="s-ips">—</div><div class="strip-label">IPv4 ADDRS</div></div>
+  <div class="strip-item"><div class="strip-val" id="s-mx">—</div><div class="strip-label">MX RECORDS</div></div>
+  <div class="strip-item"><div class="strip-val" id="s-subs">—</div><div class="strip-label">SUBDOMAINS</div></div>
+  <div class="strip-item"><div class="strip-val" id="s-score">—</div><div class="strip-label">RISK SCORE</div></div>
+  <div class="strip-item"><div class="strip-val" id="s-txt">—</div><div class="strip-label">TXT RECORDS</div></div>
+</div>
+
+<!-- Log card -->
+<div class="card span2" id="log-card" style="display:none;margin-bottom:12px">
+  <div class="card-head">
+    <div class="dot" id="log-dot" style="background:var(--yellow)"></div>
+    <span class="card-title">Recon log</span>
+    <span class="count" id="log-count">0 events</span>
+  </div>
+  <div class="card-body"><div class="log" id="log-output"></div></div>
+</div>
+
+<!-- Main grid -->
+<div class="grid" id="main-grid" style="display:none">
+
+  <!-- Domain Overview -->
+  <div class="card">
+    <div class="card-head"><div class="dot"></div><span class="card-title">Domain overview</span></div>
+    <div class="card-body" id="overview-body"><div class="empty">—</div></div>
+  </div>
+
+  <!-- Risk Assessment -->
+  <div class="card">
+    <div class="card-head"><div class="dot y"></div><span class="card-title">Risk assessment</span></div>
+    <div class="card-body" id="risk-body"><div class="empty">—</div></div>
+  </div>
+
+  <!-- DNS Records -->
+  <div class="card">
+    <div class="card-head"><div class="dot"></div><span class="card-title">DNS records</span></div>
+    <div class="card-body"><pre class="dns" id="dns-body">—</pre></div>
+  </div>
+
+  <!-- Email Security -->
+  <div class="card">
+    <div class="card-head"><div class="dot y"></div><span class="card-title">Email security (SPF · DKIM · DMARC)</span></div>
+    <div class="card-body" id="email-body"><div class="empty">—</div></div>
+  </div>
+
+  <!-- Subdomain probe -->
+  <div class="card">
+    <div class="card-head">
+      <div class="dot"></div>
+      <span class="card-title">Subdomain probe</span>
+      <span class="count" id="sub-count">0 found</span>
+    </div>
+    <div class="card-body"><div class="sub-list" id="sub-body"><div class="empty">—</div></div></div>
+  </div>
+
+  <!-- Hosting intelligence -->
+  <div class="card">
+    <div class="card-head"><div class="dot y"></div><span class="card-title">Hosting intelligence</span></div>
+    <div class="card-body" id="host-body"><div class="empty">—</div></div>
+  </div>
+
+  <!-- Intelligence tags — full width -->
+  <div class="card span2">
+    <div class="card-head"><div class="dot"></div><span class="card-title">Intelligence tags</span></div>
+    <div class="card-body" id="tags-body"><div class="empty">—</div></div>
+  </div>
+
+  <!-- Raw TXT dump — full width -->
+  <div class="card span2">
+    <div class="card-head"><div class="dot d"></div><span class="card-title">Raw TXT records</span></div>
+    <div class="card-body"><pre class="dns" id="txt-body">—</pre></div>
+  </div>
+
+</div>
+
+<script>
+// ── Utilities ──────────────────────────────────────────────────────────────
+const DNS = 'https://dns.google/resolve';
+let logCount = 0;
+
+function $(id) { return document.getElementById(id); }
+
+function addLog(msg, type='') {
+  logCount++;
+  const cls = type==='e'?' e':type==='w'?' w':'';
+  const pre  = type==='e'?'[ERR] ':type==='w'?'[WRN] ':'[+]  ';
+  $('log-output').innerHTML += `<div class="log-line${cls}">${pre}<span>${msg}</span></div>`;
+  $('log-count').textContent = logCount + ' events';
+  const log = $('log-output').parentElement;
+  log.scrollTop = log.scrollHeight;
+}
+
+async function dns(name, type) {
+  try {
+    const r = await fetch(`${DNS}?name=${encodeURIComponent(name)}&type=${type}&cd=false`);
+    const j = await r.json();
+    return j.Answer || [];
+  } catch(e) { return []; }
+}
+
+function typeStr(t) {
+  return {1:'A',2:'NS',5:'CNAME',6:'SOA',12:'PTR',15:'MX',16:'TXT',28:'AAAA',257:'CAA'}[t] || String(t);
+}
+
+function entropy(s) {
+  const f={};
+  for(const c of s) f[c]=(f[c]||0)+1;
+  return -Object.values(f).reduce((a,v)=>a+(v/s.length)*Math.log2(v/s.length),0);
+}
+
+function detectCDN(nsStr, aStr) {
+  const s = nsStr+' '+aStr;
+  if (s.includes('cloudflare')) return 'Cloudflare';
+  if (s.includes('awsdns')||s.includes('amazonaws')) return 'AWS Route53';
+  if (s.includes('googledomains')||s.includes('google')) return 'Google Cloud DNS';
+  if (s.includes('azure-dns')||s.includes('microsoft')) return 'Azure DNS';
+  if (s.includes('vercel')) return 'Vercel';
+  if (s.includes('netlify')) return 'Netlify';
+  if (s.includes('fastly')) return 'Fastly';
+  if (s.includes('akam')) return 'Akamai';
+  if (s.includes('squarespace')) return 'Squarespace';
+  if (s.includes('shopify')) return 'Shopify';
+  return null;
+}
+
+function detectMailProvider(mxStr) {
+  if (mxStr.includes('google')||mxStr.includes('aspmx')) return 'Google Workspace';
+  if (mxStr.includes('outlook')||mxStr.includes('microsoft')) return 'Microsoft 365';
+  if (mxStr.includes('proofpoint')) return 'Proofpoint';
+  if (mxStr.includes('mimecast')) return 'Mimecast';
+  if (mxStr.includes('mailgun')) return 'Mailgun';
+  if (mxStr.includes('sendgrid')) return 'SendGrid';
+  if (mxStr.includes('zoho')) return 'Zoho Mail';
+  if (mxStr.includes('fastmail')) return 'Fastmail';
+  if (mxStr.includes('protonmail')) return 'ProtonMail';
+  return null;
+}
+
+function loading(id) {
+  $(id).innerHTML = '<div class="empty"><span class="spin"></span>scanning…</div>';
+}
+
+// ── Main scan ──────────────────────────────────────────────────────────────
+async function runScan() {
+  let raw = $('domain-input').value.trim().toLowerCase();
+  raw = raw.replace(/^https?:\/\//,'').split('/')[0].split('?')[0];
+  if (!raw || !raw.includes('.')) { alert('Please enter a valid domain (e.g. github.com)'); return; }
+  const domain = raw;
+
+  // Reset
+  logCount = 0;
+  $('log-output').innerHTML = '';
+  $('log-count').textContent = '0 events';
+  $('log-dot').style.background = 'var(--yellow)';
+  $('scan-btn').disabled = true;
+  $('log-card').style.display = '';
+  $('main-grid').style.display = 'none';
+  $('summary-strip').style.display = 'none';
+
+  const pill = $('status-pill');
+  pill.textContent = '● SCANNING'; pill.className = 'active';
+
+  ['overview-body','risk-body','email-body','host-body','tags-body'].forEach(loading);
+  $('dns-body').textContent = 'resolving…';
+  $('txt-body').textContent = 'resolving…';
+  $('sub-body').innerHTML = '<div class="empty"><span class="spin"></span>probing 40 common subdomains…</div>';
+
+  addLog(`Target locked: ${domain}`);
+  addLog('Sending DNS queries via Google DoH (8.8.8.8)');
+
+  // ── Phase 1: Core DNS ──
+  const [aR, a6R, mxR, nsR, txtR, caaR, soaR] = await Promise.all([
+    dns(domain,'A'), dns(domain,'AAAA'), dns(domain,'MX'),
+    dns(domain,'NS'), dns(domain,'TXT'), dns(domain,'CAA'), dns(domain,'SOA')
+  ]);
+  addLog(`A:${aR.length}  AAAA:${a6R.length}  MX:${mxR.length}  NS:${nsR.length}  TXT:${txtR.length}  CAA:${caaR.length}`);
+
+  // ── Phase 2: Email security ──
+  addLog('Querying email security records…');
+  const [dmarcQ] = await Promise.all([ dns(`_dmarc.${domain}`,'TXT') ]);
+  const spfRec   = txtR.find(r=>r.data.includes('v=spf'));
+  const dmarcRec = dmarcQ.find(r=>r.data.includes('v=DMARC'));
+
+  // DKIM — probe common selectors
+  const dkimSelectors = ['default','google','mail','k1','selector1','selector2','dkim','smtp','s1','s2','mandrill','mailchimp','sendgrid','ses'];
+  const dkimResults = await Promise.all(dkimSelectors.map(s=>dns(`${s}._domainkey.${domain}`,'TXT')));
+  const dkimHit = dkimResults.findIndex(r=>r.length>0);
+  const dkimSel = dkimHit>=0 ? dkimSelectors[dkimHit] : null;
+  addLog(spfRec   ? `SPF found: ${spfRec.data.substring(0,50)}…` : 'No SPF record', spfRec?'':'w');
+  addLog(dmarcRec ? `DMARC found: p=${(dmarcRec.data.match(/p=(\w+)/)||[,'?'])[1]}` : 'No DMARC record', dmarcRec?'':'w');
+  addLog(dkimSel  ? `DKIM detected at selector: ${dkimSel}` : 'DKIM not found on common selectors', dkimSel?'':'w');
+
+  // ── Phase 3: Subdomain probe ──
+  const subdomains = [
+    'www','mail','smtp','imap','pop','webmail','ftp','sftp',
+    'api','dev','staging','test','beta','app','portal','vpn',
+    'admin','manage','dashboard','login','auth','sso',
+    'cdn','assets','static','media','img',
+    'blog','docs','help','support','status',
+    'ns1','ns2','mx1','mx2',
+    'remote','citrix','jira','gitlab','jenkins','grafana'
+  ];
+  addLog(`Probing ${subdomains.length} common subdomains…`);
+  const subBatches = [];
+  for (let i=0; i<subdomains.length; i+=8) subBatches.push(subdomains.slice(i,i+8));
+  const found = [];
+  for (const batch of subBatches) {
+    const results = await Promise.all(batch.map(s=>dns(`${s}.${domain}`,'A').then(r=>({sub:s,ips:r.map(x=>x.data)}))));
+    results.filter(r=>r.ips.length).forEach(r=>found.push(r));
+  }
+  addLog(`Subdomain probe complete: ${found.length} active`);
+
+  // ── Compute risk score ──
+  let riskPts = 0; const flags = [];
+  if (!spfRec)   { riskPts+=25; flags.push({t:'No SPF record',       s:'danger'}); }
+  else if (spfRec.data.includes('+all')) { riskPts+=20; flags.push({t:'SPF +all (open relay!)', s:'danger'}); }
+  if (!dmarcRec) { riskPts+=25; flags.push({t:'No DMARC record',     s:'danger'}); }
+  else if (dmarcRec.data.includes('p=none')) { riskPts+=12; flags.push({t:'DMARC p=none (monitor only)', s:'warn'}); }
+  if (!dkimSel)  { riskPts+=10; flags.push({t:'DKIM undetected',     s:'warn'}); }
+  if (!caaR.length){ riskPts+=10; flags.push({t:'No CAA record',     s:'warn'}); }
+  if (!a6R.length) { riskPts+=5;  flags.push({t:'No IPv6 configured',s:'warn'}); }
+  if (mxR.length===0){ riskPts+=5; flags.push({t:'No MX records',    s:'warn'}); }
+  const ent = entropy(domain.split('.')[0]);
+  if (ent > 3.8)   { riskPts+=5;  flags.push({t:`High domain entropy (${ent.toFixed(1)})`,s:'warn'}); }
+  if (riskPts===0) flags.push({t:'Strong DNS hygiene',s:'safe'});
+  const risk = riskPts>=45?'HIGH':riskPts>=15?'MEDIUM':'LOW';
+  const scoreVal = Math.max(0, 100-riskPts);
+  const riskColor = risk==='HIGH'?'var(--red)':risk==='MEDIUM'?'var(--yellow)':'var(--accent)';
+  addLog(`Risk score: ${scoreVal}/100 → ${risk}`);
+
+  // ── Detect hosting / provider ──
+  const nsStr = nsR.map(r=>r.data.toLowerCase()).join(' ');
+  const aStr  = aR.map(r=>r.data).join(' ');
+  const cdn   = detectCDN(nsStr, aStr);
+  const mxStr = mxR.map(r=>r.data.toLowerCase()).join(' ');
+  const mail  = detectMailProvider(mxStr);
+
+  // ── Intelligence tags ──
+  const tags = [];
+  if (cdn)   tags.push({t:`DNS/CDN: ${cdn}`, s:'safe'});
+  if (mail)  tags.push({t:`Mail: ${mail}`,   s:'safe'});
+  if (spfRec) {
+    if (spfRec.data.includes('-all'))     tags.push({t:'SPF -all (strict)',    s:'safe'});
+    else if(spfRec.data.includes('~all')) tags.push({t:'SPF ~all (softfail)', s:'warn'});
+    else if(spfRec.data.includes('+all')) tags.push({t:'SPF +all (dangerous)',s:'danger'});
+  }
+  if (dmarcRec) {
+    const pol = (dmarcRec.data.match(/p=(\w+)/)||[,'?'])[1];
+    const pct = (dmarcRec.data.match(/pct=(\d+)/)||[,'100'])[1];
+    tags.push({t:`DMARC: ${pol} (pct=${pct}%)`, s: pol==='reject'?'safe':pol==='quarantine'?'warn':'warn'});
+    const ruf = dmarcRec.data.includes('ruf=');
+    const rua = dmarcRec.data.includes('rua=');
+    if (rua) tags.push({t:'DMARC aggregate reports enabled', s:'safe'});
+    if (ruf) tags.push({t:'DMARC forensic reports enabled',  s:'safe'});
+  }
+  if (dkimSel) tags.push({t:`DKIM selector: ${dkimSel}`, s:'safe'});
+  if (caaR.length) {
+    const issuers = [...new Set(caaR.map(r=>r.data.replace(/^\d+ issue(wild)? "/,'').replace('"','').trim()).filter(Boolean))];
+    tags.push({t:`CAA: ${issuers.join(', ')}`, s:'safe'});
+  }
+  if (aR.length>3) tags.push({t:`Load balanced (${aR.length} IPs)`, s:''});
+  if (a6R.length)  tags.push({t:'IPv6 dual-stack', s:'safe'});
+  if (soaR.length) {
+    const ttl = soaR[0].TTL;
+    if (ttl<300) tags.push({t:'Very low SOA TTL — frequent updates', s:'warn'});
+  }
+  if (txtR.some(r=>r.data.includes('google-site-verification'))) tags.push({t:'Google Site Verified',s:''});
+  if (txtR.some(r=>r.data.includes('MS=')))   tags.push({t:'Microsoft Verified',  s:''});
+  if (txtR.some(r=>r.data.includes('apple-domain'))) tags.push({t:'Apple Verified', s:''});
+  if (txtR.some(r=>r.data.includes('docusign')))  tags.push({t:'DocuSign configured', s:''});
+  if (txtR.some(r=>r.data.includes('atlassian'))) tags.push({t:'Atlassian configured', s:''});
+  if (txtR.some(r=>r.data.includes('stripe')))    tags.push({t:'Stripe configured', s:''});
+  const hasZtxt = txtR.some(r=>r.data.includes('zoom'));
+  if (hasZtxt) tags.push({t:'Zoom configured', s:''});
+  if (found.some(f=>f.sub==='vpn'))     tags.push({t:'VPN endpoint detected',   s:'warn'});
+  if (found.some(f=>f.sub==='admin'))   tags.push({t:'Admin portal detected',   s:'warn'});
+  if (found.some(f=>f.sub==='jenkins')||found.some(f=>f.sub==='gitlab')) tags.push({t:'CI/CD infrastructure exposed', s:'warn'});
+  if (found.some(f=>f.sub==='grafana')) tags.push({t:'Grafana dashboard detected', s:'warn'});
+
+  // ── Build DNS record display ──
+  let dnsText = '';
+  const appendRecs = (label, recs) => {
+    recs.forEach(r => { dnsText += `${label.padEnd(7)} ${r.data}\n`; });
+  };
+  appendRecs('A',    aR);
+  appendRecs('AAAA', a6R);
+  appendRecs('NS',   nsR);
+  appendRecs('MX',   mxR);
+  appendRecs('CAA',  caaR);
+  soaR.forEach(r => { dnsText += `SOA     ${r.data}\n`; });
+  if (!dnsText) dnsText = 'No records returned';
+
+  // ── Render everything ──
+  $('dns-body').textContent = dnsText.trim();
+  $('txt-body').textContent = txtR.length
+    ? txtR.map(r=>`TXT     ${r.data}`).join('\n')
+    : 'No TXT records';
+
+  $('overview-body').innerHTML = `
+    <div class="row"><span class="rk">Domain</span><span class="rv g">${domain}</span></div>
+    <div class="row"><span class="rk">IPv4 addresses</span><span class="rv">${aR.map(r=>r.data).join(', ')||'<span class="rv d">none</span>'}</span></div>
+    <div class="row"><span class="rk">IPv6 addresses</span><span class="rv ${a6R.length?'g':'d'}">${a6R.length ? a6R.map(r=>r.data.substring(0,20)+'…').join(', ') : 'not configured'}</span></div>
+    <div class="row"><span class="rk">Name servers</span><span class="rv">${nsR.length}</span></div>
+    <div class="row"><span class="rk">MX records</span><span class="rv">${mxR.length}</span></div>
+    <div class="row"><span class="rk">TXT records</span><span class="rv">${txtR.length}</span></div>
+    <div class="row"><span class="rk">CAA enforced</span><span class="rv ${caaR.length?'g':'y'}">${caaR.length?'Yes':'No'}</span></div>
+    <div class="row"><span class="rk">DNS provider</span><span class="rv ${cdn?'g':'d'}">${cdn||'Could not detect'}</span></div>
+    <div class="row"><span class="rk">Domain entropy</span><span class="rv ${ent>3.8?'y':''}">${ent.toFixed(2)} bits</span></div>
+  `;
+
+  $('risk-body').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:11px;color:var(--mid)">Email spoofability / DNS hygiene</span>
+      <span class="risk-badge risk-${risk}">${risk} RISK</span>
+    </div>
+    <div class="score-bar"><div class="score-fill" id="score-fill" style="width:0%;background:${riskColor}"></div></div>
+    <div class="score-note">${scoreVal}/100 — ${risk==='LOW'?'Well hardened':risk==='MEDIUM'?'Gaps present — review flags below':'Domain may be spoofable'}</div>
+    <div>${flags.map(f=>`<span class="tag ${f.s}">${f.t}</span>`).join('')}</div>
+  `;
+  setTimeout(()=>{ const f=$('score-fill'); if(f) f.style.width=scoreVal+'%'; }, 80);
+
+  $('email-body').innerHTML = `
+    <div class="row"><span class="rk">SPF</span><span class="rv ${spfRec?'g':'r'}">${spfRec?'✓ Present':'✗ Missing'}</span></div>
+    ${spfRec ? `<div class="spf-box">${spfRec.data}</div>` : ''}
+    <div class="row" style="margin-top:${spfRec?8:0}px"><span class="rk">DMARC</span><span class="rv ${dmarcRec?'g':'r'}">${dmarcRec?`✓ p=${(dmarcRec.data.match(/p=(\w+)/)||[,'?'])[1]}`:'✗ Missing'}</span></div>
+    ${dmarcRec ? `<div class="spf-box">${dmarcRec.data}</div>` : ''}
+    <div class="row" style="margin-top:${dmarcRec?8:0}px"><span class="rk">DKIM</span><span class="rv ${dkimSel?'g':'y'}">${dkimSel?`✓ selector: ${dkimSel}`:'? Not found on common selectors'}</span></div>
+  `;
+
+  $('host-body').innerHTML = `
+    <div class="row"><span class="rk">CDN / DNS host</span><span class="rv ${cdn?'g':'d'}">${cdn||'Unknown'}</span></div>
+    <div class="row"><span class="rk">Mail provider</span><span class="rv ${mail?'g':'d'}">${mail||'Unknown'}</span></div>
+    <div class="row"><span class="rk">NS count</span><span class="rv">${nsR.length} servers</span></div>
+    ${nsR.map(r=>`<div class="row"><span class="rk">  ↳</span><span class="rv" style="color:var(--blue)">${r.data}</span></div>`).join('')}
+    <div class="row"><span class="rk">Primary MX</span><span class="rv">${mxR.length?mxR[0].data:'<span class="rv d">none</span>'}</span></div>
+  `;
+
+  // Subdomains
+  $('sub-count').textContent = found.length+' found';
+  $('sub-body').innerHTML = found.length
+    ? found.map(f=>`<div class="sub-item"><span class="sub-name">${f.sub}.${domain}</span><span class="sub-ip">${f.ips.join(', ')}</span></div>`).join('')
+    : '<div class="empty">No common subdomains resolved</div>';
+
+  $('tags-body').innerHTML = tags.length
+    ? tags.map(t=>`<span class="tag ${t.s}">${t.t}</span>`).join('')
+    : '<span class="tag">No significant intelligence tags detected</span>';
+
+  // Summary strip
+  $('s-ips').textContent    = aR.length;
+  $('s-mx').textContent     = mxR.length;
+  $('s-subs').textContent   = found.length;
+  $('s-score').textContent  = scoreVal;
+  $('s-score').style.color  = riskColor;
+  $('s-txt').textContent    = txtR.length;
+
+  // Show results
+  $('main-grid').style.display   = 'grid';
+  $('summary-strip').style.display = 'flex';
+  $('log-dot').style.background  = 'var(--accent)';
+  pill.textContent = '● DONE'; pill.className = 'done';
+  $('scan-btn').disabled = false;
+  addLog(`Complete — ${logCount} events logged`);
+}
+
+function clearAll() {
+  $('domain-input').value = '';
+  $('log-card').style.display   = 'none';
+  $('main-grid').style.display  = 'none';
+  $('summary-strip').style.display = 'none';
+  $('log-output').innerHTML = '';
+  logCount = 0;
+  const pill = $('status-pill');
+  pill.textContent = 'IDLE'; pill.className = '';
+}
+
+$('domain-input').addEventListener('keydown', e => { if(e.key==='Enter') runScan(); });
+</script>
+</body>
+</html>
